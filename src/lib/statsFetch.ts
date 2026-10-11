@@ -145,7 +145,7 @@ type SourcevineResponse = {
 }
 
 /** Optional paid provider for the numbers public pages don't show; only used when SOURCEVINE_API_KEY is set */
-async function readSourcevine(url: URL, platform: Platform, signal: AbortSignal): Promise<Partial<Metrics> | undefined> {
+export async function readSourcevine(url: URL, platform: Platform, signal: AbortSignal): Promise<Partial<Metrics> | undefined> {
   // This runs on the server. Never expose this key to browser code.
   const apiKey = process.env.SOURCEVINE_API_KEY
   if (!apiKey) return undefined
@@ -160,11 +160,18 @@ const sourceUrl =
 
 apiUrl.searchParams.set('url', sourceUrl)
     const response = await fetch(apiUrl, { signal, headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' } })
-    if (!response.ok) return undefined
+    // 401/402/429 etc. (bad key, no credits, rate limit) fall back to the public page numbers
+    if (!response.ok) {
+      console.warn(`[sourcevine] HTTP ${response.status} for ${sourceUrl}`)
+      return undefined
+    }
     const result = (await response.json()) as SourcevineResponse
-    const data = result.datak
+    const data = result.data
 
-    if (result.success !== true || result.available === false || !data) return undefined
+    if (result.success !== true || result.available === false || !data) {
+      console.warn(`[sourcevine] No stats for ${sourceUrl}`)
+      return undefined
+    }
 
     const views = num(data.views)
     const likes = num(data.likes)
@@ -212,7 +219,7 @@ apiUrl.searchParams.set('url', sourceUrl)
   }
 }
 
-async function fetchMetrics(rawUrl: string): Promise<FetchedStats> {
+export async function fetchMetrics(rawUrl: string): Promise<FetchedStats> {
   let url: URL
   try {
     url = new URL(rawUrl.trim())
@@ -242,9 +249,9 @@ async function fetchMetrics(rawUrl: string): Promise<FetchedStats> {
     // A provider may still have the numbers
   }
 
-  const provider = await readSourcevine(url, metrics?.platform ?? platform, signal)
-  
-const resolved = metrics?.platform ?? platform
+  const resolved = metrics?.platform ?? platform
+  // SourceVine numbers are only used for Reels; other platforms keep their public page numbers
+  const provider = resolved === 'ig-reel' ? await readSourcevine(url, resolved, signal) : undefined
 
 const stats = compact(
   resolved === 'ig-reel'
