@@ -357,7 +357,8 @@ function instagramMediaPreview(media: InstagramMedia): Preview {
     stats: pickStats([
       ['likes', media.edge_liked_by?.count ?? media.edge_media_preview_like?.count],
       ['comments', media.edge_media_to_comment?.count ?? media.edge_media_preview_comment?.count],
-      ['views', media.video_view_count ?? media.video_play_count],
+      // Plays match the number Instagram shows on the reel; video_view_count is the older, lower count
+      ['views', media.video_play_count ?? media.video_view_count],
     ]),
   }
 }
@@ -491,7 +492,9 @@ function instagramCounts(html: string): Partial<Stats> {
   const description = meta['og:description'] || meta['description'] || ''
   const likes = description.match(/([\d.,]+\s*[KMB]?)\s+likes?\b/i)?.[1]
   const comments = description.match(/([\d.,]+\s*[KMB]?)\s+comments?\b/i)?.[1]
-  const views = html.match(/"(?:video_view_count|play_count|view_count)":(\d+)/)?.[1]
+  const views = ['video_play_count', 'ig_play_count', 'play_count', 'video_view_count', 'view_count']
+    .map((key) => html.match(new RegExp(`"${key}":(\\d+)`))?.[1])
+    .find(Boolean)
   return compact({ likes: count(likes), comments: count(comments), views: count(views) })
 }
 

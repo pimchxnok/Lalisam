@@ -6,8 +6,11 @@ import { fillTemplate, pickLine, type PickedLine } from '@/lib/generator'
 import { engageStatus } from '@/lib/engagement'
 import { copyText } from '@/lib/platform'
 import { getActivity, updateActivity, useActivity, useSiteData } from '@/lib/store'
-import { pickBankLine } from '@/lib/styles'
-import type { Campaign, Lang, Post } from '@/lib/types'
+import { STORY_STYLE_ID, pickBankLine } from '@/lib/styles'
+import type { Campaign, Lang, LineType, Post } from '@/lib/types'
+
+/** Used when Owner Studio has no type on the Story style (deleted or switched to another style), so Random keeps working */
+const builtInStoryType: LineType = { id: 'story', name: 'Story Caption', description: 'Short captions for sharing media posts to IG Story.', style: STORY_STYLE_ID }
 
 const steps = [
   { n: 1, title: 'Copy caption + open post', body: 'One tap copies your story caption and opens the post in Instagram.' },
@@ -18,7 +21,7 @@ const steps = [
 export function StorySharePanel({ post, campaign }: { post: Post; campaign?: Campaign }) {
   const data = useSiteData()
   const activity = useActivity()
-  const storyType = data.lineTypes.find((t) => t.style === 'story')
+  const storyType = data.lineTypes.find((t) => t.style === STORY_STYLE_ID) ?? builtInStoryType
   const mentions = useMemo(
     () => [...new Set([...(post.extraMentions ?? []), ...(campaign?.mentions ?? [])])],
     [post, campaign],
@@ -44,16 +47,20 @@ export function StorySharePanel({ post, campaign }: { post: Post; campaign?: Cam
   const request = useRef(0)
 
   /** Owner lines first half the time, then the Story style's saved bank, then the built-in phrase bank */
-  async function pick(exclude?: string) {
-    if (!storyType) return null
+  async function pick(exclude?: string): Promise<PickedLine | null> {
     const used = getActivity().usedLines
     const customs = data.customLines.filter((l) => l.typeId === storyType.id && l.lang === lang && !used[`u:${l.id}`] && `u:${l.id}` !== exclude)
     if (customs.length && Math.random() < 0.5) {
       const l = customs[Math.floor(Math.random() * customs.length)]
       return { id: `u:${l.id}`, text: fillTemplate(l.text, campaign), custom: true }
     }
-    const banked = await pickBankLine({ styleId: storyType.style, lang, length: 'short', campaign, used, exclude })
-    return banked ?? pickLine({ type: storyType, lang, length: 'short', campaign, customLines: data.customLines, used, exclude })
+    const banked = await pickBankLine({ styleId: storyType.style, lang, length: 'short', campaign, used, exclude }).catch(() => null)
+    return (
+      banked ??
+      pickLine({ type: storyType, lang, length: 'short', campaign, customLines: data.customLines, used, exclude }) ??
+      // Every caption was copied already: serve one again rather than leaving the box empty
+      pickLine({ type: storyType, lang, length: 'short', campaign, customLines: data.customLines, used: {}, exclude })
+    )
   }
 
   async function drawLine(exclude?: string) {
@@ -81,7 +88,7 @@ export function StorySharePanel({ post, campaign }: { post: Post; campaign?: Cam
   }
 
   async function writeWithAi() {
-    if (!storyType || writing) return
+    if (writing) return
     setWriting(true)
     try {
       const next = await requestAiLine({

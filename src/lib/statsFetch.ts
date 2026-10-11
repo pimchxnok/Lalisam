@@ -110,7 +110,12 @@ async function readInstagram(url: URL, signal: AbortSignal): Promise<Metrics> {
       stats.comments =
         countText(html.match(/>\s*View all\s+([\d.,]+[KMB]?)\s+comments?\s*</i)?.[1]) ??
         jsonCount(html, ['comment_count', 'edge_media_to_parent_comment', 'edge_media_to_comment'])
-      stats.views = countText(html.match(/>\s*([\d.,]+[KMB]?)\s+(?:views|plays)\s*</i)?.[1]) ?? jsonCount(html, ['video_view_count', 'play_count', 'view_count'])
+      // Reels now show plays as "views"; video_view_count is the older, much lower 3-second view count
+      stats.views =
+        jsonCount(html, ['video_play_count', 'ig_play_count', 'play_count']) ??
+        countText(html.match(/>\s*([\d.,]+[KMB]?)\s+plays\s*</i)?.[1]) ??
+        countText(html.match(/>\s*([\d.,]+[KMB]?)\s+views\s*</i)?.[1]) ??
+        jsonCount(html, ['video_view_count', 'view_count'])
       video ||= /"is_video\\?"\s*:\s*true|class="[^"]*EmbedVideo/i.test(html)
     } catch {
       // Fall back to the preview tags below
