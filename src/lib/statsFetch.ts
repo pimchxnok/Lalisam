@@ -134,87 +134,69 @@ async function readInstagram(url: URL, signal: AbortSignal): Promise<Metrics> {
     }
   }
   const platform: Platform = video ? 'ig-reel' : 'ig-post'
-  if (platform === 'ig-post') delete stats.views
-  return { platform, stats: compact(stats) }
-}
-
-type SourcevineResponse = {
+  if (platform === 'ig-post') delete stats.viewstype SourcevineResponse = {
   success?: boolean
   available?: boolean
   data?: Record<string, number | string | null | undefined> & { channelName?: string }
 }
 
+
 /** Optional paid provider for the numbers public pages don't show; only used when SOURCEVINE_API_KEY is set */
-export async function readSourcevine(url: URL, platform: Platform, signal: AbortSignal): Promise<Partial<Metrics> | undefined> {
-  // This runs on the server. Never expose this key to browser code.
+export async function readSourcevine(
+  url: URL,
+  platform: Platform,
+  signal: AbortSignal,
+): Promise<Partial<Metrics> | undefined> {
   const apiKey = process.env.SOURCEVINE_API_KEY
   if (!apiKey) return undefined
+
   try {
-    const apiUrl = new URL(`https://api.sourcevine.io/v1/${platform === 'tiktok' ? 'tiktok' : 'instagram'}/stats`)
-    const code = platform === 'ig-reel' ? instagramCode(url) : null
+    const apiUrl = new URL(
+      `https://api.sourcevine.io/v1/${platform === 'tiktok' ? 'tiktok' : 'instagram'}/stats`,
+    )
+    apiUrl.searchParams.set('url', url.toString())
 
-const sourceUrl =
-  code
-    ? `https://www.instagram.com/reel/${code}/`
-    : url.toString()
+    const response = await fetch(apiUrl, {
+      signal,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        Accept: 'application/json',
+      },
+    })
 
-apiUrl.searchParams.set('url', sourceUrl)
-    const response = await fetch(apiUrl, { signal, headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' } })
-    // 401/402/429 etc. (bad key, no credits, rate limit) fall back to the public page numbers
     if (!response.ok) {
-      console.warn(`[sourcevine] HTTP ${response.status} for ${sourceUrl}`)
+      console.warn(`[sourcevine] HTTP ${response.status} for ${url.toString()}`)
       return undefined
     }
+
     const result = (await response.json()) as SourcevineResponse
     const data = result.data
 
     if (result.success !== true || result.available === false || !data) {
-      console.warn(`[sourcevine] No stats for ${sourceUrl}`)
+      console.warn(`[sourcevine] No stats for ${url.toString()}`)
       return undefined
     }
 
-    const views = num(data.views)
-    const likes = num(data.likes)
-    const comments = num(data.comments)
-    const shares = num(data.shares)
-
-    // Private metrics (IG typically doesn't expose these in public API)
-    const saves = num(data.saves ?? data.collects)
-    const reposts = num(data.reposts)
-
     const stats: Partial<Stats> = {
-      // PUBLIC METRICS — safe to update from API
-      ...(views !== undefined ? { views } : {}),
-      ...(likes !== undefined ? { likes } : {}),
-      ...(comments !== undefined ? { comments } : {}),
-      ...(shares !== undefined ? { shares } : {}),
-      // PRIVATE METRICS — only update if SourceVine returns them
-      ...(saves !== undefined && saves > 0 ? { saves } : {}),
-      ...(reposts !== undefined && reposts > 0 ? { reposts } : {}),
+      ...(num(data.views) !== undefined ? { views: num(data.views) } : {}),
+      ...(num(data.likes) !== undefined ? { likes: num(data.likes) } : {}),
+      ...(num(data.comments) !== undefined ? { comments: num(data.comments) } : {}),
+      ...(num(data.shares) !== undefined ? { shares: num(data.shares) } : {}),
+      ...(num(data.saves ?? data.collects) !== undefined
+        ? { saves: num(data.saves ?? data.collects) }
+        : {}),
+      ...(num(data.reposts) !== undefined ? { reposts: num(data.reposts) } : {}),
     }
-
-    const keys: (keyof Stats)[] = [
-      'views',
-      'likes',
-      'comments',
-      'shares',
-      'saves',
-      'reposts',
-    ]
 
     return {
       account: data.channelName ? `@${data.channelName}` : undefined,
-      stats: compact({
-        views: num(data.views),
-        likes: num(data.likes),
-        comments: num(data.comments),
-        shares: num(data.shares),
-        saves: num(data.saves ?? data.collects),
-        reposts: num(data.reposts),
-      }),
+      stats: compact(stats),
     }
-
-  } catch {
+  } catch (error) {
+    console.warn(
+      '[sourcevine] Request failed:',
+      error instanceof Error ? error.message : 'unknown error',
+    )
     return undefined
   }
 }
@@ -249,7 +231,112 @@ export async function fetchMetrics(rawUrl: string): Promise<FetchedStats> {
     // A provider may still have the numbers
   }
 
-  const resolved = metrics?.platform ?? platform
+  return { platform, stats: compact(stats) }
+}
+
+type SourcevineResponse = {
+  success?: boolean
+  available?: boolean
+  data?: Record<string, number | string | null | undefined> & { channelName?: string }
+}
+
+
+/** Optional paid provider for the numbers public pages don't show; only used when SOURCEVINE_API_KEY is set */
+export async function readSourcevine(
+  url: URL,
+  platform: Platform,
+  signal: AbortSignal,
+): Promise<Partial<Metrics> | undefined> {
+  const apiKey = process.env.SOURCEVINE_API_KEY
+  if (!apiKey) return undefined
+
+  try {
+    const apiUrl = new URL(
+      `https://api.sourcevine.io/v1/${platform === 'tiktok' ? 'tiktok' : 'instagram'}/stats`,
+    )
+    apiUrl.searchParams.set('url', url.toString())
+
+    const response = await fetch(apiUrl, {
+      signal,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        Accept: 'application/json',
+      },
+    })
+
+    if (!response.ok) {
+      console.warn(`[sourcevine] HTTP ${response.status} for ${url.toString()}`)
+      return undefined
+    }
+
+    const result = (await response.json()) as SourcevineResponse
+    const data = result.data
+
+    if (result.success !== true || result.available === false || !data) {
+      console.warn(`[sourcevine] No stats for ${url.toString()}`)
+      return undefined
+    }
+
+    const stats: Partial<Stats> = {
+      ...(num(data.views) !== undefined ? { views: num(data.views) } : {}),
+      ...(num(data.likes) !== undefined ? { likes: num(data.likes) } : {}),
+      ...(num(data.comments) !== undefined ? { comments: num(data.comments) } : {}),
+      ...(num(data.shares) !== undefined ? { shares: num(data.shares) } : {}),
+      ...(num(data.saves ?? data.collects) !== undefined
+        ? { saves: num(data.saves ?? data.collects) }
+        : {}),
+      ...(num(data.reposts) !== undefined ? { reposts: num(data.reposts) } : {}),
+    }
+
+    return {
+      account: data.channelName ? `@${data.channelName}` : undefined,
+      stats: compact(stats),
+    }
+  } catch (error) {
+    console.warn(
+      '[sourcevine] Request failed:',
+      error instanceof Error ? error.message : 'unknown error',
+    )
+    return undefined
+  }
+}
+
+export async function fetchMetrics(rawUrl: string): Promise<FetchedStats> {
+  let url: URL
+  try {
+    url = new URL(rawUrl.trim())
+  } catch {
+    return { stats: {}, missing: [], error: 'That link is not a valid URL.' }
+  }
+
+  let platform = socialPlatform(url)
+  if (!platform) {
+    return {
+      stats: {},
+      missing: [],
+      error: 'Use an HTTPS TikTok or Instagram post link.',
+    }
+  }
+
+  const signal = AbortSignal.timeout(15000)
+  let metrics: Metrics | undefined
+
+  try {
+    if (platform === 'tiktok' ? !tiktokPost(url) : !instagramCode(url)) {
+      url = await resolveShareLink(url, signal)
+      platform = socialPlatform(url) ?? platform
+    }
+    metrics = platform === 'tiktok' ? await readTikTok(url, signal) : await readInstagram(url, signal)
+  } catch {
+    // A provider may still have the numbers
+  }
+
+  const isExplicitReel =
+  /^\/(reel|reels|tv)\//i.test(url.pathname)
+
+const resolved: Platform = isExplicitReel
+  ? 'ig-reel'
+  : metrics?.platform ?? platform
   // SourceVine numbers are only used for Reels; other platforms keep their public page numbers
   const provider = resolved === 'ig-reel' ? await readSourcevine(url, resolved, signal) : undefined
 
