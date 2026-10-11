@@ -151,11 +151,18 @@ async function readSourcevine(url: URL, platform: Platform, signal: AbortSignal)
   if (!apiKey) return undefined
   try {
     const apiUrl = new URL(`https://api.sourcevine.io/v1/${platform === 'tiktok' ? 'tiktok' : 'instagram'}/stats`)
-    apiUrl.searchParams.set('url', url.toString())
+    const code = platform === 'ig-reel' ? instagramCode(url) : null
+
+const sourceUrl =
+  code
+    ? `https://www.instagram.com/reel/${code}/`
+    : url.toString()
+
+apiUrl.searchParams.set('url', sourceUrl)
     const response = await fetch(apiUrl, { signal, headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' } })
     if (!response.ok) return undefined
     const result = (await response.json()) as SourcevineResponse
-    const data = result.data
+    const data = result.datak
 
     if (result.success !== true || result.available === false || !data) return undefined
 
@@ -236,9 +243,14 @@ async function fetchMetrics(rawUrl: string): Promise<FetchedStats> {
   }
 
   const provider = await readSourcevine(url, metrics?.platform ?? platform, signal)
-  const resolved = metrics?.platform ?? platform
-  // Public page numbers win; the provider only fills metrics the page didn't show
-  const stats = compact({ ...provider?.stats, ...metrics?.stats })
+  
+const resolved = metrics?.platform ?? platform
+
+const stats = compact(
+  resolved === 'ig-reel'
+    ? { ...metrics?.stats, ...provider?.stats }
+    : { ...provider?.stats, ...metrics?.stats },
+)
   const missing = platformMetrics[resolved].filter((key) => stats[key] === undefined)
   return {
     platform: resolved,
